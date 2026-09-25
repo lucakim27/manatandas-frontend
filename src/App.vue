@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import MapView from './components/MapView.vue'
-import SearchBar from './components/SearchBar.vue'
-import HeaderActions from './components/HeaderActions.vue'
-import LeftRail from './components/LeftRail.vue'
-import MapToolbar from './components/MapToolbar.vue'
+import MapView from './components/map/MapView.vue'
+import SearchBar from './components/search/SearchBar.vue'
+import HeaderActions from './components/layout/HeaderActions.vue'
+import LeftRail from './components/layout/LeftRail.vue'
+import MapToolbar from './components/map/MapToolbar.vue'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
 const mapView = ref<InstanceType<typeof MapView> | null>(null)
