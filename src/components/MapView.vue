@@ -54,6 +54,11 @@ function reset() {
   map?.fitBounds(MY_BOUNDS)
 }
 
+// Flies the map to an arbitrary coordinate, e.g. from a place search result
+function flyTo(lat: number, lng: number, zoom = 16) {
+  map?.flyTo([lat, lng], zoom)
+}
+
 // Asks the browser for the user's current location (triggers the permission
 // prompt) and centers the map there if it falls within Malaysia.
 function locateMe() {
@@ -83,7 +88,7 @@ function locateMe() {
   )
 }
 
-defineExpose({ zoomIn, zoomOut, reset, locateMe })
+defineExpose({ zoomIn, zoomOut, reset, locateMe, flyTo })
 
 onMounted(() => {
   if (!mapContainer.value) return
