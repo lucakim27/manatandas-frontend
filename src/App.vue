@@ -2,8 +2,8 @@
 import { ref } from 'vue'
 import MapView from './components/map/MapView.vue'
 import SearchBar from './components/search/SearchBar.vue'
-import HeaderActions from './components/layout/HeaderActions.vue'
-import LeftRail from './components/layout/LeftRail.vue'
+import ProfileButton from './components/layout/ProfileButton.vue'
+import ModeToggle from './components/layout/ModeToggle.vue'
 import MapToolbar from './components/map/MapToolbar.vue'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
@@ -20,10 +20,10 @@ function handlePlaceSelected({ lat, lon }: { lat: number; lon: number }) {
 
     <header class="topbar">
       <SearchBar @select="handlePlaceSelected" />
-      <HeaderActions />
+      <ProfileButton />
     </header>
 
-    <LeftRail v-model="activeMode" />
+    <ModeToggle v-model="activeMode" />
 
     <MapToolbar
       @locate="mapView?.locateMe()"
