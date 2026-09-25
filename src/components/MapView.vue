@@ -5,9 +5,15 @@ import 'leaflet/dist/leaflet.css'
 
 interface Bathroom {
   id: number
-  lat: number
-  lng: number
+  latitude: number
+  longitude: number
   name: string
+  address: string | null
+  accessType: 'PUBLIC' | 'CUSTOMERS_ONLY' | 'PRIVATE' | 'UNKNOWN'
+  isPaid: boolean | null
+  isAccessible: boolean | null
+  rating: number | null
+  source: 'USER' | 'OSM' | 'GOOGLE_PLACES' | 'PETROL_STATION' | 'GOVERNMENT' | 'PLUS_RR'
 }
 
 const mapContainer = ref<HTMLDivElement | null>(null)
@@ -34,13 +40,6 @@ const userLocationIcon = L.divIcon({
   iconSize: [22, 22],
   iconAnchor: [11, 11],
 })
-
-// TODO: replace with data fetched from the backend, e.g. GET /bathrooms?bounds=...
-const bathrooms: Bathroom[] = [
-  { id: 1, lat: 3.139, lng: 101.6869, name: 'KLCC Public Toilet' },
-  { id: 2, lat: 5.4141, lng: 100.3288, name: 'Penang Ferry Terminal Toilet' },
-  { id: 3, lat: 3.0738, lng: 101.5183, name: 'Petaling Jaya Rest Area' },
-]
 
 function zoomIn() {
   map?.zoomIn()
@@ -77,7 +76,7 @@ function locateMe() {
 
       // Only recenter on it if it's actually inside Malaysia's bounds
       if (MY_BOUNDS.contains(latlng)) {
-        map?.setView(latlng, 15)
+        map?.setView(latlng, 17)
       }
     },
     (error) => {
@@ -86,6 +85,28 @@ function locateMe() {
     },
     { enableHighAccuracy: true, timeout: 10000 },
   )
+}
+
+// Fetches bathrooms from the backend and drops a marker for each.
+async function loadBathrooms() {
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string | undefined
+  if (!apiBase || !map) return
+
+  try {
+    const response = await fetch(`${apiBase}/api/bathrooms`)
+    if (!response.ok) throw new Error(`Request failed: ${response.status}`)
+
+    const bathrooms: Bathroom[] = await response.json()
+
+    bathrooms.forEach((b) => {
+      L.marker([b.latitude, b.longitude], { icon: bathroomIcon })
+        .addTo(map as L.Map)
+        .bindPopup(b.name)
+    })
+  } catch (error) {
+    // Backend not running / unreachable — map still works, just without pins
+    console.warn('Could not load bathrooms from the backend:', error)
+  }
 }
 
 defineExpose({ zoomIn, zoomOut, reset, locateMe, flyTo })
@@ -113,11 +134,8 @@ onMounted(() => {
     maxZoom: 20,
   }).addTo(map)
 
-  bathrooms.forEach((b) => {
-    L.marker([b.lat, b.lng], { icon: bathroomIcon })
-      .addTo(map as L.Map)
-      .bindPopup(b.name)
-  })
+  // Load real bathroom pins from the backend
+  loadBathrooms()
 
   // Ask for location permission once the map is ready
   locateMe()
