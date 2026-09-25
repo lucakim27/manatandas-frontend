@@ -2,22 +2,65 @@
 import { ref } from 'vue'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
-const showDetails = ref(false)
 const search = ref('')
+const mapPosition = ref({ x: 0, y: 0 })
+const mapScale = ref(1)
+const isDragging = ref(false)
 
-const mapFilters = ['Cafés', 'Food', 'Parks']
+let dragStart = { x: 0, y: 0 }
+
+function startDragging(event: PointerEvent) {
+  isDragging.value = true
+  dragStart = {
+    x: event.clientX - mapPosition.value.x,
+    y: event.clientY - mapPosition.value.y,
+  }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+function dragMap(event: PointerEvent) {
+  if (!isDragging.value) return
+  mapPosition.value = {
+    x: event.clientX - dragStart.x,
+    y: event.clientY - dragStart.y,
+  }
+}
+
+function stopDragging() {
+  isDragging.value = false
+}
+
+function zoomMap(amount: number) {
+  mapScale.value = Math.min(1.6, Math.max(0.7, Number((mapScale.value + amount).toFixed(2))))
+}
+
+function resetMap() {
+  mapPosition.value = { x: 0, y: 0 }
+  mapScale.value = 1
+}
 </script>
 
 <template>
   <main class="map-app">
-    <div class="map-art" aria-hidden="true">
-      <div class="water-label">HAN RIVER</div>
-      <div class="district district-one">Seongsu</div>
-      <div class="district district-two">Ttukseom</div>
-      <div class="district district-three">Apgujeong</div>
-      <div class="district district-four">Jamsil</div>
-      <div class="park park-one"><span>Seoul Forest</span></div>
-      <div class="park park-two"><span>Olympic Park</span></div>
+    <div
+      class="map-art"
+      :class="{ dragging: isDragging }"
+      :style="{ transform: `translate(${mapPosition.x}px, ${mapPosition.y}px) scale(${mapScale})` }"
+      aria-label="Interactive toilet map of Malaysia"
+      role="application"
+      @pointerdown="startDragging"
+      @pointermove="dragMap"
+      @pointerup="stopDragging"
+      @pointercancel="stopDragging"
+      @pointerleave="stopDragging"
+    >
+      <div class="water-label">STRAITS OF MALACCA</div>
+      <div class="district district-one">Kuala Lumpur</div>
+      <div class="district district-two">Petaling Jaya</div>
+      <div class="district district-three">Shah Alam</div>
+      <div class="district district-four">Putrajaya</div>
+      <div class="park park-one"><span>Toilet zone</span></div>
+      <div class="park park-two"><span>Rest area</span></div>
       <div class="road road-a"></div>
       <div class="road road-b"></div>
       <div class="road road-c"></div>
@@ -28,8 +71,8 @@ const mapFilters = ['Cafés', 'Food', 'Parks']
       <div class="river-bridge bridge-one"></div>
       <div class="river-bridge bridge-two"></div>
       <div class="pin pin-main"><span class="pin-dot"></span></div>
-      <div class="pin pin-cafe"><span class="pin-dot"></span></div>
-      <div class="pin pin-park"><span class="pin-dot"></span></div>
+      <div class="pin pin-toilet"><span class="pin-dot"></span></div>
+      <div class="pin pin-rest"><span class="pin-dot"></span></div>
     </div>
 
     <header class="topbar">
@@ -40,7 +83,7 @@ const mapFilters = ['Cafés', 'Food', 'Parks']
 
       <div class="search-shell">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.7"></circle><path d="m16 16 4.2 4.2"></path></svg>
-        <input v-model="search" type="search" placeholder="Search places, neighborhoods, or vibes" aria-label="Search the map" />
+        <input v-model="search" type="text" placeholder="Search Malaysian toilets or locations" aria-label="Search the map" />
         <button v-if="search" class="clear-search" aria-label="Clear search" @click="search = ''">×</button>
         <span class="search-key">⌘ K</span>
       </div>
@@ -63,47 +106,24 @@ const mapFilters = ['Cafés', 'Food', 'Parks']
         <span>Saved</span>
       </button>
       <span class="rail-divider"></span>
-      <button @click="showDetails = !showDetails">
+      <button @click="resetMap">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 10.8v5.3M12 7.5h.01"></path></svg>
-        <span>About</span>
+        <span>Reset</span>
       </button>
     </nav>
 
     <section class="map-toolbar">
-      <button class="location-button glass-panel" aria-label="Show my location">
+      <button class="location-button glass-panel" aria-label="Reset map view" @click="resetMap">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>
       </button>
       <div class="zoom-controls glass-panel">
-        <button aria-label="Zoom in">+</button>
+        <button aria-label="Zoom in" @click="zoomMap(0.1)">+</button>
         <span></span>
-        <button aria-label="Zoom out">−</button>
+        <button aria-label="Zoom out" @click="zoomMap(-0.1)">−</button>
       </div>
     </section>
 
-    <div class="map-filters">
-      <button v-for="filter in mapFilters" :key="filter" class="filter-chip glass-panel">{{ filter }}</button>
-      <button class="filter-chip glass-panel muted-chip">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>
-        Filters
-      </button>
-    </div>
-
-    <aside class="place-card glass-panel" :class="{ expanded: showDetails }">
-      <div class="place-visual">
-        <div class="photo-glow"></div>
-        <span class="photo-badge">OPEN NOW</span>
-      </div>
-      <div class="place-content">
-        <div class="eyebrow">NEAR YOU · 4 MIN AWAY</div>
-        <h1>Layered coffee, <em>slowly.</em></h1>
-        <p>Quiet corners, natural wine &amp; the city's best cardamom bun.</p>
-        <div class="place-meta"><span class="rating">★ 4.8</span><span>Seongsu-dong</span><span>₩₩</span></div>
-        <button class="details-button" @click="showDetails = !showDetails">{{ showDetails ? 'Hide details' : 'View place details' }} <span>↗</span></button>
-      </div>
-      <button class="save-place" aria-label="Save place">♡</button>
-    </aside>
-
-    <div class="map-attribution">© maat maps <span>·</span> <a href="#">Map data</a></div>
+    <div class="map-attribution">© maat toilet maps <span>·</span> Malaysia</div>
   </main>
 </template>
 
@@ -116,7 +136,8 @@ body { margin: 0; min-width: 320px; }
 button, input { font: inherit; }
 button { border: 0; cursor: pointer; }
 .map-app { position: relative; min-height: 100vh; overflow: hidden; background: #dce6db; isolation: isolate; }
-.map-art { position: absolute; inset: 0; overflow: hidden; background: #d7e2d7; }
+.map-art { position: absolute; inset: -12%; overflow: hidden; background: #d7e2d7; cursor: grab; touch-action: none; transition: transform .18s ease-out; }
+.map-art.dragging { cursor: grabbing; transition: none; }
 .map-art::before, .map-art::after { position: absolute; content: ''; display: block; }
 .map-art::before { width: 83%; height: 130%; top: -11%; left: 21%; border-radius: 48%; transform: rotate(22deg); background: #a6cbb9; box-shadow: 0 0 0 18px rgba(255,255,255,.22), inset 0 0 0 1px rgba(55,120,101,.1); }
 .map-art::after { width: 72%; height: 74%; top: 29%; left: -18%; border: 1px solid rgba(83, 128, 105, .15); border-radius: 50%; transform: rotate(-24deg); box-shadow: 0 0 0 24px rgba(255,255,255,.12), 0 0 0 48px rgba(95,141,118,.07); }
@@ -128,15 +149,15 @@ button { border: 0; cursor: pointer; }
 .road { position: absolute; z-index: 1; height: 3px; border-radius: 99px; background: rgba(255,255,255,.58); box-shadow: 0 1px 0 rgba(118,148,128,.16); transform-origin: left center; }
 .road-a { width: 75%; left: 5%; top: 39%; transform: rotate(-17deg); }.road-b { width: 70%; left: 25%; top: 62%; transform: rotate(21deg); }.road-c { width: 66%; left: 2%; top: 72%; transform: rotate(-39deg); }.road-d { width: 46%; left: 50%; top: 16%; transform: rotate(73deg); }.road-e { width: 55%; left: 42%; top: 85%; transform: rotate(-9deg); }.road-f { width: 42%; left: 55%; top: 44%; transform: rotate(-51deg); }.road-g { width: 35%; left: 13%; top: 19%; transform: rotate(52deg); }
 .river-bridge { position: absolute; z-index: 2; width: 4px; height: 93px; border-left: 1px solid rgba(155,112,80,.28); border-right: 1px solid rgba(155,112,80,.28); background: rgba(255,255,255,.42); transform: rotate(29deg); }.bridge-one { top: 30%; left: 45%; }.bridge-two { top: 56%; left: 64%; height: 115px; transform: rotate(-38deg); }
-.pin { position: absolute; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; border: 5px solid rgba(255,255,255,.78); border-radius: 50% 50% 50% 0; background: #dc7359; box-shadow: 0 5px 12px rgba(45,91,67,.2); transform: rotate(-45deg); }.pin-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; }.pin-main { top: 51%; left: 54%; width: 46px; height: 46px; background: #273e35; }.pin-main .pin-dot { width: 9px; height: 9px; }.pin-cafe { top: 29%; left: 64%; }.pin-park { top: 74%; left: 25%; background: #d79a58; }
+.pin { position: absolute; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; border: 5px solid rgba(255,255,255,.78); border-radius: 50% 50% 50% 0; background: #dc7359; box-shadow: 0 5px 12px rgba(45,91,67,.2); transform: rotate(-45deg); }.pin-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; }.pin-main { top: 51%; left: 54%; width: 46px; height: 46px; background: #273e35; }.pin-main .pin-dot { width: 9px; height: 9px; }.pin-toilet { top: 29%; left: 64%; }.pin-rest { top: 74%; left: 25%; background: #d79a58; }
 .glass-panel { border: 1px solid rgba(255,255,255,.72); background: rgba(251,255,251,.72); box-shadow: 0 10px 30px rgba(50,80,62,.09), inset 0 1px 0 rgba(255,255,255,.75); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 .topbar { position: absolute; z-index: 5; display: flex; align-items: center; gap: clamp(18px, 4vw, 68px); top: 25px; right: 34px; left: 34px; }
 .brand { display: flex; align-items: center; gap: 9px; color: #263b30; text-decoration: none; font-size: 20px; font-weight: 700; letter-spacing: -.06em; }.brand-mark { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; background: #263b30; color: #e8f1e7; font: italic 21px Georgia; }
 .search-shell { display: flex; align-items: center; width: min(515px, 58vw); height: 52px; padding: 0 17px; border: 1px solid rgba(255,255,255,.86); border-radius: 17px; background: rgba(250,254,250,.86); box-shadow: 0 12px 35px rgba(40,70,51,.12), inset 0 1px 0 white; backdrop-filter: blur(20px); }.search-shell svg { width: 19px; margin-right: 12px; fill: none; stroke: #527064; stroke-linecap: round; stroke-width: 1.8; }.search-shell input { min-width: 0; flex: 1; border: 0; outline: 0; color: #263b30; background: transparent; font-size: 13px; }.search-shell input::placeholder { color: #789083; }.search-key { padding: 4px 7px; border: 1px solid #d3dfd5; border-radius: 6px; color: #91a198; font: 10px 'DM Mono'; }.clear-search { color: #789083; background: transparent; font-size: 20px; }
 .header-actions { display: flex; align-items: center; gap: 15px; margin-left: auto; }.icon-button, .profile-button { display: grid; place-items: center; background: rgba(250,254,250,.7); box-shadow: 0 8px 20px rgba(40,70,51,.08); }.icon-button { width: 42px; height: 42px; border: 1px solid rgba(255,255,255,.8); border-radius: 13px; }.icon-button svg { width: 19px; fill: none; stroke: #3b594a; stroke-width: 1.6; stroke-linecap: round; }.profile-button { position: relative; width: 42px; height: 42px; border-radius: 50%; background: #d2a47c; color: #fff; font-size: 11px; font-weight: 700; }.profile-button i { position: absolute; right: -1px; bottom: 0; width: 9px; height: 9px; border: 2px solid #f5fbf5; border-radius: 50%; background: #7aac72; }
 .left-rail { position: absolute; z-index: 5; top: 50%; left: 34px; display: flex; flex-direction: column; gap: 5px; width: 73px; padding: 10px 8px; border-radius: 19px; transform: translateY(-50%); }.left-rail button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 3px; border-radius: 12px; color: #779084; background: transparent; font-size: 10px; }.left-rail button:hover, .left-rail button.active { color: #263e32; background: rgba(212,229,215,.7); }.left-rail svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }.rail-divider { height: 1px; margin: 3px 7px; background: #dbe6dc; }
-.map-toolbar { position: absolute; z-index: 4; right: 34px; bottom: 181px; display: flex; flex-direction: column; gap: 10px; }.location-button { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 13px; color: #3c6651; }.location-button svg { width: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.7; }.zoom-controls { display: flex; flex-direction: column; align-items: center; padding: 5px 0; border-radius: 13px; }.zoom-controls button { width: 41px; height: 34px; color: #355846; background: transparent; font-size: 21px; font-weight: 400; }.zoom-controls span { width: 23px; height: 1px; background: #d7e2d8; }
+.map-toolbar { position: absolute; z-index: 4; right: 34px; bottom: 34px; display: flex; flex-direction: column; gap: 10px; }.location-button { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 13px; color: #3c6651; }.location-button svg { width: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.7; }.zoom-controls { display: flex; flex-direction: column; align-items: center; padding: 5px 0; border-radius: 13px; }.zoom-controls button { width: 41px; height: 34px; color: #355846; background: transparent; font-size: 21px; font-weight: 400; }.zoom-controls span { width: 23px; height: 1px; background: #d7e2d8; }
 .map-filters { position: absolute; z-index: 4; top: 101px; left: 50%; display: flex; gap: 8px; transform: translateX(-50%); }.filter-chip { padding: 9px 15px; border-radius: 99px; color: #496958; font-size: 11px; white-space: nowrap; }.filter-chip:hover { background: #fff; }.muted-chip { display: flex; align-items: center; gap: 7px; }.muted-chip svg { width: 14px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.7; }
 .place-card { position: absolute; z-index: 4; bottom: 31px; left: 34px; display: flex; width: min(430px, calc(100vw - 68px)); min-height: 164px; overflow: hidden; border-radius: 21px; transition: transform .25s ease; }.place-card:hover { transform: translateY(-3px); }.place-visual { position: relative; width: 119px; flex: 0 0 119px; overflow: hidden; background: linear-gradient(145deg,#b5cfbb,#6e9e83 55%,#c8a77f); }.photo-glow { position: absolute; width: 110px; height: 110px; top: 33px; left: -8px; border-radius: 45% 55% 50% 50%; background: radial-gradient(circle at 42% 35%,#f5dcab 0 8%,#b9794c 9% 17%,#d5ac72 18% 32%,#557b62 33% 52%,transparent 53%); transform: rotate(-20deg); }.photo-badge { position: absolute; top: 12px; left: 11px; padding: 4px 6px; border-radius: 5px; color: #315540; background: rgba(239,251,237,.8); font: 8px 'DM Mono'; letter-spacing: .08em; }.place-content { padding: 19px 18px 15px; }.eyebrow { margin-bottom: 7px; color: #739080; font: 9px 'DM Mono'; letter-spacing: .08em; }.place-content h1 { margin: 0 0 6px; color: #2c4537; font-size: 20px; font-weight: 600; letter-spacing: -.04em; }.place-content h1 em { font-family: 'Playfair Display', serif; font-weight: 500; }.place-content p { max-width: 245px; margin: 0 0 11px; color: #668072; font-size: 11px; line-height: 1.4; }.place-meta { display: flex; gap: 10px; color: #86a094; font-size: 10px; }.rating { color: #bc804f; }.details-button { margin-top: 12px; padding: 0; color: #365e49; background: transparent; font-size: 11px; font-weight: 600; }.details-button span { margin-left: 4px; font-size: 14px; }.save-place { position: absolute; top: 13px; right: 14px; color: #537461; background: transparent; font-size: 22px; line-height: 1; }.map-attribution { position: absolute; z-index: 4; right: 34px; bottom: 20px; color: #729080; font: 9px 'DM Mono'; }.map-attribution span { margin: 0 4px; color: #a0b4a6; }.map-attribution a { color: inherit; }
-@media (max-width: 680px) { .topbar { top: 16px; right: 16px; left: 16px; gap: 12px; }.brand { font-size: 17px; }.brand-mark { width: 26px; height: 26px; }.search-shell { width: auto; flex: 1; height: 47px; padding: 0 12px; }.search-shell input { font-size: 12px; }.search-key, .notification { display: none; }.profile-button { flex: 0 0 38px; width: 38px; height: 38px; }.left-rail { top: auto; bottom: 219px; left: 16px; width: auto; flex-direction: row; padding: 5px; transform: none; }.left-rail button { flex-direction: row; padding: 7px 9px; }.left-rail .rail-divider { width: 1px; height: 21px; margin: 5px 2px; }.map-filters { top: 83px; left: 16px; right: 16px; justify-content: center; transform: none; overflow: auto; }.map-toolbar { right: 16px; bottom: 215px; }.place-card { bottom: 16px; left: 16px; width: calc(100vw - 32px); min-height: 154px; }.place-visual { width: 96px; flex-basis: 96px; }.place-content { padding: 16px 14px; }.place-content h1 { font-size: 18px; }.map-attribution { display: none; } }
+@media (max-width: 680px) { .topbar { top: 16px; right: 16px; left: 16px; gap: 12px; }.brand { font-size: 17px; }.brand-mark { width: 26px; height: 26px; }.search-shell { width: auto; flex: 1; height: 47px; padding: 0 12px; }.search-shell input { font-size: 12px; }.search-key, .notification { display: none; }.profile-button { flex: 0 0 38px; width: 38px; height: 38px; }.left-rail { top: auto; bottom: 16px; left: 16px; width: auto; flex-direction: row; padding: 5px; transform: none; }.left-rail button { flex-direction: row; padding: 7px 9px; }.left-rail .rail-divider { width: 1px; height: 21px; margin: 5px 2px; }.map-toolbar { right: 16px; bottom: 16px; }.map-attribution { display: none; } }
 </style>
