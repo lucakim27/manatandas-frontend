@@ -1,79 +1,31 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import MapView from './components/MapView.vue'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
 const search = ref('')
-const mapPosition = ref({ x: 0, y: 0 })
-const mapScale = ref(1)
-const isDragging = ref(false)
+const mapView = ref<InstanceType<typeof MapView> | null>(null)
 
-let dragStart = { x: 0, y: 0 }
-
-function startDragging(event: PointerEvent) {
-  isDragging.value = true
-  dragStart = {
-    x: event.clientX - mapPosition.value.x,
-    y: event.clientY - mapPosition.value.y,
-  }
-  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+function zoomIn() {
+  mapView.value?.zoomIn()
 }
 
-function dragMap(event: PointerEvent) {
-  if (!isDragging.value) return
-  mapPosition.value = {
-    x: event.clientX - dragStart.x,
-    y: event.clientY - dragStart.y,
-  }
-}
-
-function stopDragging() {
-  isDragging.value = false
-}
-
-function zoomMap(amount: number) {
-  mapScale.value = Math.min(1.6, Math.max(0.7, Number((mapScale.value + amount).toFixed(2))))
+function zoomOut() {
+  mapView.value?.zoomOut()
 }
 
 function resetMap() {
-  mapPosition.value = { x: 0, y: 0 }
-  mapScale.value = 1
+  mapView.value?.reset()
+}
+
+function locateMe() {
+  mapView.value?.locateMe()
 }
 </script>
 
 <template>
   <main class="map-app">
-    <div
-      class="map-art"
-      :class="{ dragging: isDragging }"
-      :style="{ transform: `translate(${mapPosition.x}px, ${mapPosition.y}px) scale(${mapScale})` }"
-      aria-label="Interactive toilet map of Malaysia"
-      role="application"
-      @pointerdown="startDragging"
-      @pointermove="dragMap"
-      @pointerup="stopDragging"
-      @pointercancel="stopDragging"
-      @pointerleave="stopDragging"
-    >
-      <div class="water-label">STRAITS OF MALACCA</div>
-      <div class="district district-one">Kuala Lumpur</div>
-      <div class="district district-two">Petaling Jaya</div>
-      <div class="district district-three">Shah Alam</div>
-      <div class="district district-four">Putrajaya</div>
-      <div class="park park-one"><span>Toilet zone</span></div>
-      <div class="park park-two"><span>Rest area</span></div>
-      <div class="road road-a"></div>
-      <div class="road road-b"></div>
-      <div class="road road-c"></div>
-      <div class="road road-d"></div>
-      <div class="road road-e"></div>
-      <div class="road road-f"></div>
-      <div class="road road-g"></div>
-      <div class="river-bridge bridge-one"></div>
-      <div class="river-bridge bridge-two"></div>
-      <div class="pin pin-main"><span class="pin-dot"></span></div>
-      <div class="pin pin-toilet"><span class="pin-dot"></span></div>
-      <div class="pin pin-rest"><span class="pin-dot"></span></div>
-    </div>
+    <MapView ref="mapView" />
 
     <header class="topbar">
       <a class="brand" href="#" aria-label="Maat home">
@@ -113,13 +65,13 @@ function resetMap() {
     </nav>
 
     <section class="map-toolbar">
-      <button class="location-button glass-panel" aria-label="Reset map view" @click="resetMap">
+      <button class="location-button glass-panel" aria-label="Center on my location" @click="locateMe">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>
       </button>
       <div class="zoom-controls glass-panel">
-        <button aria-label="Zoom in" @click="zoomMap(0.1)">+</button>
+        <button aria-label="Zoom in" @click="zoomIn">+</button>
         <span></span>
-        <button aria-label="Zoom out" @click="zoomMap(-0.1)">−</button>
+        <button aria-label="Zoom out" @click="zoomOut">−</button>
       </div>
     </section>
 
@@ -136,20 +88,6 @@ body { margin: 0; min-width: 320px; }
 button, input { font: inherit; }
 button { border: 0; cursor: pointer; }
 .map-app { position: relative; min-height: 100vh; overflow: hidden; background: #dce6db; isolation: isolate; }
-.map-art { position: absolute; inset: -12%; overflow: hidden; background: #d7e2d7; cursor: grab; touch-action: none; transition: transform .18s ease-out; }
-.map-art.dragging { cursor: grabbing; transition: none; }
-.map-art::before, .map-art::after { position: absolute; content: ''; display: block; }
-.map-art::before { width: 83%; height: 130%; top: -11%; left: 21%; border-radius: 48%; transform: rotate(22deg); background: #a6cbb9; box-shadow: 0 0 0 18px rgba(255,255,255,.22), inset 0 0 0 1px rgba(55,120,101,.1); }
-.map-art::after { width: 72%; height: 74%; top: 29%; left: -18%; border: 1px solid rgba(83, 128, 105, .15); border-radius: 50%; transform: rotate(-24deg); box-shadow: 0 0 0 24px rgba(255,255,255,.12), 0 0 0 48px rgba(95,141,118,.07); }
-.water-label { position: absolute; top: 48%; left: 37%; z-index: 1; color: rgba(48,106,91,.45); font: 500 10px 'DM Mono', monospace; letter-spacing: .24em; transform: rotate(65deg); }
-.district { position: absolute; z-index: 2; color: rgba(46,73,59,.58); font-size: 12px; letter-spacing: .02em; }
-.district-one { top: 39%; left: 58%; }.district-two { top: 27%; left: 37%; }.district-three { top: 63%; left: 31%; }.district-four { top: 70%; left: 73%; }
-.park { position: absolute; z-index: 1; display: grid; place-items: center; width: 142px; height: 90px; border-radius: 45% 55% 42% 58%; background: #bad7b6; color: rgba(47,99,71,.58); font-size: 10px; }
-.park-one { top: 32%; left: 19%; transform: rotate(13deg); }.park-two { right: 8%; bottom: 11%; width: 190px; height: 115px; transform: rotate(-8deg); }
-.road { position: absolute; z-index: 1; height: 3px; border-radius: 99px; background: rgba(255,255,255,.58); box-shadow: 0 1px 0 rgba(118,148,128,.16); transform-origin: left center; }
-.road-a { width: 75%; left: 5%; top: 39%; transform: rotate(-17deg); }.road-b { width: 70%; left: 25%; top: 62%; transform: rotate(21deg); }.road-c { width: 66%; left: 2%; top: 72%; transform: rotate(-39deg); }.road-d { width: 46%; left: 50%; top: 16%; transform: rotate(73deg); }.road-e { width: 55%; left: 42%; top: 85%; transform: rotate(-9deg); }.road-f { width: 42%; left: 55%; top: 44%; transform: rotate(-51deg); }.road-g { width: 35%; left: 13%; top: 19%; transform: rotate(52deg); }
-.river-bridge { position: absolute; z-index: 2; width: 4px; height: 93px; border-left: 1px solid rgba(155,112,80,.28); border-right: 1px solid rgba(155,112,80,.28); background: rgba(255,255,255,.42); transform: rotate(29deg); }.bridge-one { top: 30%; left: 45%; }.bridge-two { top: 56%; left: 64%; height: 115px; transform: rotate(-38deg); }
-.pin { position: absolute; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; border: 5px solid rgba(255,255,255,.78); border-radius: 50% 50% 50% 0; background: #dc7359; box-shadow: 0 5px 12px rgba(45,91,67,.2); transform: rotate(-45deg); }.pin-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; }.pin-main { top: 51%; left: 54%; width: 46px; height: 46px; background: #273e35; }.pin-main .pin-dot { width: 9px; height: 9px; }.pin-toilet { top: 29%; left: 64%; }.pin-rest { top: 74%; left: 25%; background: #d79a58; }
 .glass-panel { border: 1px solid rgba(255,255,255,.72); background: rgba(251,255,251,.72); box-shadow: 0 10px 30px rgba(50,80,62,.09), inset 0 1px 0 rgba(255,255,255,.75); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 .topbar { position: absolute; z-index: 5; display: flex; align-items: center; gap: clamp(18px, 4vw, 68px); top: 25px; right: 34px; left: 34px; }
 .brand { display: flex; align-items: center; gap: 9px; color: #263b30; text-decoration: none; font-size: 20px; font-weight: 700; letter-spacing: -.06em; }.brand-mark { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 9px; background: #263b30; color: #e8f1e7; font: italic 21px Georgia; }
