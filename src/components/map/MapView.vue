@@ -16,6 +16,7 @@ interface Bathroom {
   isAccessible: boolean | null
   rating: number | null
   source: 'USER' | 'OSM' | 'GOOGLE_PLACES' | 'PETROL_STATION' | 'GOVERNMENT' | 'PLUS_RR'
+  submittedByUserId: number | null
 }
 
 const mapContainer = ref<HTMLDivElement | null>(null)
@@ -74,6 +75,143 @@ function reset() {
 // Flies the map to an arbitrary coordinate, e.g. from a place search result
 function flyTo(lat: number, lng: number, zoom = 16) {
   map?.flyTo([lat, lng], zoom)
+}
+
+function openMapContextMenu(event: L.LeafletMouseEvent) {
+  if (!map || !MY_BOUNDS.contains(event.latlng)) return
+
+  const target = event.originalEvent.target
+  if (target instanceof Element && target.closest('.leaflet-marker-icon, .leaflet-popup')) return
+  L.DomEvent.preventDefault(event.originalEvent)
+
+  if (state.isChecking) {
+    const message = document.createElement('p')
+    message.className = 'add-bathroom-message'
+    message.textContent = 'Checking your sign-in…'
+    L.popup().setLatLng(event.latlng).setContent(message).openOn(map)
+    return
+  }
+
+  if (!state.user) {
+    const content = document.createElement('div')
+    content.className = 'add-bathroom-popup'
+    const message = document.createElement('p')
+    message.textContent = 'Sign in to add a bathroom here.'
+    const signInButton = document.createElement('button')
+    signInButton.className = 'bathroom-popup-action'
+    signInButton.type = 'button'
+    signInButton.textContent = 'Sign in'
+    signInButton.addEventListener('click', () => {
+      map?.closePopup()
+      openProfileModal()
+    })
+    content.append(message, signInButton)
+    L.popup().setLatLng(event.latlng).setContent(content).openOn(map)
+    return
+  }
+
+  openAddBathroomForm(event.latlng)
+}
+
+function openAddBathroomForm(location: L.LatLng) {
+  if (!map) return
+
+  const form = document.createElement('form')
+  form.className = 'add-bathroom-popup'
+
+  const heading = document.createElement('strong')
+  heading.textContent = 'Add a bathroom'
+
+  const coordinates = document.createElement('span')
+  coordinates.className = 'add-bathroom-coordinates'
+  coordinates.textContent = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`
+
+  const nameLabel = document.createElement('label')
+  nameLabel.textContent = 'Bathroom name'
+  const nameInput = document.createElement('input')
+  nameInput.name = 'name'
+  nameInput.type = 'text'
+  nameInput.required = true
+  nameInput.maxLength = 120
+  nameInput.placeholder = 'e.g. Public toilet, KLCC'
+  nameLabel.append(nameInput)
+
+  const addressLabel = document.createElement('label')
+  addressLabel.textContent = 'Address (optional)'
+  const addressInput = document.createElement('input')
+  addressInput.name = 'address'
+  addressInput.type = 'text'
+  addressInput.maxLength = 250
+  addressInput.placeholder = 'Street, building, or nearby landmark'
+  addressLabel.append(addressInput)
+
+  const status = document.createElement('p')
+  status.className = 'add-bathroom-message'
+  status.setAttribute('aria-live', 'polite')
+
+  const submit = document.createElement('button')
+  submit.className = 'bathroom-popup-action'
+  submit.type = 'submit'
+  submit.textContent = 'Add bathroom'
+
+  form.append(heading, coordinates, nameLabel, addressLabel, status, submit)
+  form.addEventListener('submit', async (submitEvent) => {
+    submitEvent.preventDefault()
+    if (!API_BASE) {
+      status.textContent = 'Bathroom submission is not configured.'
+      return
+    }
+
+    submit.disabled = true
+    submit.textContent = 'Adding…'
+    status.textContent = ''
+    try {
+      const response = await fetch(`${API_BASE}/api/bathrooms`, {
+        ...fetchOpts,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: nameInput.value.trim(),
+          latitude: location.lat,
+          longitude: location.lng,
+          address: addressInput.value.trim() || null,
+        }),
+      })
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          status.textContent = 'Your sign-in may have expired. Please sign in again.'
+          openProfileModal()
+        } else {
+          status.textContent = `Could not add the bathroom (${response.status}). Please try again.`
+        }
+        return
+      }
+
+      const created: Bathroom = await response.json()
+      if (currentMode !== 'explore') {
+        currentMode = 'explore'
+        emit('show-explore')
+      }
+      map?.closePopup()
+      await loadBathrooms('explore')
+      const marker = bathroomMarkers.get(created.id)
+      if (marker) {
+        map?.flyTo([created.latitude, created.longitude], 17)
+        marker.openPopup()
+      }
+    } catch {
+      status.textContent = 'Could not reach the server. Check your connection and try again.'
+    } finally {
+      submit.disabled = false
+      submit.textContent = 'Add bathroom'
+    }
+  })
+
+  L.popup({ minWidth: 230, maxWidth: 280 })
+    .setLatLng(location)
+    .setContent(form)
+    .openOn(map)
+  nameInput.focus()
 }
 
 // Asks the browser for the user's current location (triggers the permission
@@ -303,6 +441,32 @@ async function loadBathrooms(mode: 'explore' | 'saved' = 'explore') {
       })
       popup.append(action)
 
+      if (state.user && b.submittedByUserId === state.user.id) {
+        const deleteAction = document.createElement('button')
+        deleteAction.className = 'bathroom-popup-action bathroom-popup-delete'
+        deleteAction.type = 'button'
+        deleteAction.textContent = 'Delete bathroom'
+        deleteAction.addEventListener('click', async () => {
+          if (!API_BASE || !window.confirm('Delete this bathroom for everyone? This also removes all saved bookmarks for it.')) return
+          deleteAction.disabled = true
+          deleteAction.textContent = 'Deleting…'
+          try {
+            const response = await fetch(`${API_BASE}/api/bathrooms/${b.id}`, {
+              ...fetchOpts,
+              method: 'DELETE',
+            })
+            if (!response.ok) throw new Error(`Request failed: ${response.status}`)
+            marker.closePopup()
+            await loadBathrooms(mode)
+          } catch (error) {
+            console.warn('Could not delete bathroom:', error)
+            deleteAction.textContent = 'Try again'
+            deleteAction.disabled = false
+          }
+        })
+        popup.append(deleteAction)
+      }
+
       marker.bindPopup(popup)
     })
   } catch (error) {
@@ -356,6 +520,7 @@ onMounted(() => {
   // Layer group for bathroom pins, so switching Explore/Saved can clear and
   // repopulate without touching other map layers (tiles, user location).
   bathroomLayer = L.layerGroup().addTo(map)
+  map.on('contextmenu', openMapContextMenu)
 
   // Load real bathroom pins from the backend (Explore mode by default)
   loadBathrooms('explore')
@@ -432,6 +597,17 @@ onBeforeUnmount(() => {
 .bathroom-popup-action { align-self: flex-start; margin-top: 3px; padding: 7px 10px; border-radius: 8px; color: #fff; background: #426e55; font-size: 11px; }
 .bathroom-popup-action:hover:not(:disabled) { background: #315a43; }
 .bathroom-popup-action:disabled { cursor: default; opacity: .65; }
+.bathroom-popup-delete { background: #a7433e; }
+.bathroom-popup-delete:hover:not(:disabled) { background: #873530; }
+
+.add-bathroom-popup { display: flex; flex-direction: column; gap: 9px; min-width: 205px; color: #24332c; }
+.add-bathroom-popup > strong { font-size: 14px; }
+.add-bathroom-popup > p { margin: 0; color: #76564f; font-size: 11px; }
+.add-bathroom-popup label { display: flex; flex-direction: column; gap: 4px; color: #52675b; font-size: 11px; }
+.add-bathroom-popup input { width: 100%; padding: 7px 8px; border: 1px solid #d5e0d7; border-radius: 7px; outline: none; color: #24332c; background: #fff; font-size: 12px; }
+.add-bathroom-popup input:focus { border-color: #71957d; }
+.add-bathroom-coordinates { color: #829187; font: 10px 'DM Mono'; }
+.add-bathroom-popup .bathroom-popup-action { align-self: stretch; margin-top: 0; }
 
 @keyframes user-location-pulse {
   0% { transform: scale(0.6); opacity: 0.8; }
