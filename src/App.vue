@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import MapView from './components/map/MapView.vue'
 import SearchBar from './components/search/SearchBar.vue'
 import ProfileButton from './components/layout/ProfileButton.vue'
 import ModeToggle from './components/layout/ModeToggle.vue'
 import MapToolbar from './components/map/MapToolbar.vue'
+import { useAuth } from './composables/useAuth'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
 const mapView = ref<InstanceType<typeof MapView> | null>(null)
+const { checkSession } = useAuth()
+
+onMounted(() => {
+  checkSession()
+})
 
 function handlePlaceSelected({ lat, lon }: { lat: number; lon: number }) {
   mapView.value?.flyTo(lat, lon)
