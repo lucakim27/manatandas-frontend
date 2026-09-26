@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { useAuth } from '../../composables/useAuth'
+import { useProfileModal } from '../../composables/useProfileModal'
 
 interface Bathroom {
   id: number
@@ -19,6 +21,11 @@ interface Bathroom {
 const mapContainer = ref<HTMLDivElement | null>(null)
 let map: L.Map | null = null
 let userMarker: L.Marker | null = null
+let bathroomLayer: L.LayerGroup | null = null
+let currentMode: 'explore' | 'saved' = 'explore'
+const { state, fetchOpts } = useAuth()
+const { open: openProfileModal } = useProfileModal()
+const API_BASE = import.meta.env.VITE_API_BASE_URL as string | undefined
 
 // Bounding box around Malaysia (covers Peninsular + East Malaysia)
 const MY_BOUNDS = L.latLngBounds(
@@ -29,6 +36,14 @@ const MY_BOUNDS = L.latLngBounds(
 const bathroomIcon = L.divIcon({
   className: 'bathroom-pin',
   html: '<span class="bathroom-pin-dot"></span>',
+  iconSize: [34, 34],
+  iconAnchor: [17, 34],
+  popupAnchor: [0, -30],
+})
+
+const savedBathroomIcon = L.divIcon({
+  className: 'bathroom-pin',
+  html: '<span class="bathroom-pin-dot bathroom-pin-dot-saved"></span>',
   iconSize: [34, 34],
   iconAnchor: [17, 34],
   popupAnchor: [0, -30],
@@ -88,28 +103,127 @@ function locateMe() {
 }
 
 // Fetches bathrooms from the backend and drops a marker for each.
-async function loadBathrooms() {
-  const apiBase = import.meta.env.VITE_API_BASE_URL as string | undefined
-  if (!apiBase || !map) return
+// mode 'explore' loads every public bathroom; 'saved' loads only the
+// current user's bookmarks (requires a valid session cookie — enforced by
+// the backend, not just this check).
+async function loadBathrooms(mode: 'explore' | 'saved' = 'explore') {
+  if (!API_BASE || !map || !bathroomLayer) return
+
+  const path = mode === 'saved' ? '/api/bathrooms/saved' : '/api/bathrooms'
 
   try {
-    const response = await fetch(`${apiBase}/api/bathrooms`)
+    const response = await fetch(`${API_BASE}${path}`, fetchOpts)
     if (!response.ok) throw new Error(`Request failed: ${response.status}`)
 
     const bathrooms: Bathroom[] = await response.json()
 
+    let savedBathroomIds = new Set<number>()
+    if (mode === 'saved') {
+      savedBathroomIds = new Set(bathrooms.map((bathroom) => bathroom.id))
+    } else if (state.user && !state.isChecking) {
+      try {
+        const savedResponse = await fetch(`${API_BASE}/api/bathrooms/saved`, fetchOpts)
+        if (!savedResponse.ok) throw new Error(`Request failed: ${savedResponse.status}`)
+        const savedBathrooms: Bathroom[] = await savedResponse.json()
+        savedBathroomIds = new Set(savedBathrooms.map((bathroom) => bathroom.id))
+      } catch (error) {
+        // Keep Explore usable if the saved list cannot be loaded. The save
+        // action still reports its own result when the user clicks it.
+        console.warn('Could not load saved bathroom status:', error)
+      }
+    }
+
+    bathroomLayer.clearLayers()
     bathrooms.forEach((b) => {
-      L.marker([b.latitude, b.longitude], { icon: bathroomIcon })
-        .addTo(map as L.Map)
-        .bindPopup(b.name)
+      let isSaved = savedBathroomIds.has(b.id)
+      const marker = L.marker([b.latitude, b.longitude], {
+        icon: mode === 'explore' && isSaved ? savedBathroomIcon : bathroomIcon,
+      })
+        .addTo(bathroomLayer as L.LayerGroup)
+
+      // Build popup content with DOM nodes so bathroom names and addresses
+      // are rendered as text rather than interpreted as HTML.
+      const popup = document.createElement('div')
+      popup.className = 'bathroom-popup'
+
+      const title = document.createElement('strong')
+      title.className = 'bathroom-popup-title'
+      title.textContent = b.name
+      popup.append(title)
+
+      if (b.address) {
+        const address = document.createElement('span')
+        address.className = 'bathroom-popup-address'
+        address.textContent = b.address
+        popup.append(address)
+      }
+
+      const action = document.createElement('button')
+      action.className = 'bathroom-popup-action'
+      action.type = 'button'
+      action.textContent = isSaved ? 'Remove from saved' : 'Save bathroom'
+
+      action.addEventListener('click', async () => {
+        if (state.isChecking) return
+        if (!state.user) {
+          openProfileModal()
+          return
+        }
+        if (!API_BASE) return
+
+        action.disabled = true
+        action.textContent = isSaved ? 'Removing…' : 'Saving…'
+        try {
+          const response = await fetch(`${API_BASE}/api/bathrooms/${b.id}/save`, {
+            ...fetchOpts,
+            method: isSaved ? 'DELETE' : 'POST',
+          })
+          if (!response.ok) throw new Error(`Request failed: ${response.status}`)
+
+          isSaved = !isSaved
+          if (mode === 'explore') {
+            marker.setIcon(isSaved ? savedBathroomIcon : bathroomIcon)
+          }
+          if (mode === 'saved' && !isSaved) {
+            marker.closePopup()
+            await loadBathrooms('saved')
+          } else {
+            action.textContent = isSaved ? 'Remove from saved' : 'Save bathroom'
+            action.disabled = false
+          }
+        } catch (error) {
+          console.warn('Could not update saved bathroom:', error)
+          action.textContent = 'Try again'
+          action.disabled = false
+        }
+      })
+      popup.append(action)
+
+      marker.bindPopup(popup)
     })
   } catch (error) {
-    // Backend not running / unreachable — map still works, just without pins
+    // Backend unreachable, or (for 'saved') the session expired — map still
+    // works, just without pins for this mode.
     console.warn('Could not load bathrooms from the backend:', error)
   }
 }
 
-defineExpose({ zoomIn, zoomOut, reset, locateMe, flyTo })
+// Called by App.vue when the Explore/Saved toggle changes.
+function setMode(mode: 'explore' | 'saved') {
+  currentMode = mode
+  loadBathrooms(mode)
+}
+
+// The first Explore request can finish before the initial session check.
+// Reload it when sign-in changes so every popup has the user's saved state.
+watch(
+  () => state.user?.id,
+  () => {
+    if (currentMode === 'explore') loadBathrooms('explore')
+  },
+)
+
+defineExpose({ zoomIn, zoomOut, reset, locateMe, flyTo, setMode })
 
 onMounted(() => {
   if (!mapContainer.value) return
@@ -134,8 +248,12 @@ onMounted(() => {
     maxZoom: 20,
   }).addTo(map)
 
-  // Load real bathroom pins from the backend
-  loadBathrooms()
+  // Layer group for bathroom pins, so switching Explore/Saved can clear and
+  // repopulate without touching other map layers (tiles, user location).
+  bathroomLayer = L.layerGroup().addTo(map)
+
+  // Load real bathroom pins from the backend (Explore mode by default)
+  loadBathrooms('explore')
 
   // Ask for location permission once the map is ready
   locateMe()
@@ -174,6 +292,8 @@ onBeforeUnmount(() => {
   transform: rotate(-45deg);
 }
 
+.bathroom-pin-dot-saved { background: #4b8a62; }
+
 .user-location-pin {
   position: relative;
   display: grid;
@@ -200,6 +320,13 @@ onBeforeUnmount(() => {
   background: rgba(47, 111, 237, 0.25);
   animation: user-location-pulse 2s ease-out infinite;
 }
+
+.bathroom-popup { display: flex; flex-direction: column; gap: 7px; min-width: 150px; color: #24332c; }
+.bathroom-popup-title { font-size: 13px; }
+.bathroom-popup-address { color: #718378; font-size: 11px; line-height: 1.35; }
+.bathroom-popup-action { align-self: flex-start; margin-top: 3px; padding: 7px 10px; border-radius: 8px; color: #fff; background: #426e55; font-size: 11px; }
+.bathroom-popup-action:hover:not(:disabled) { background: #315a43; }
+.bathroom-popup-action:disabled { cursor: default; opacity: .65; }
 
 @keyframes user-location-pulse {
   0% { transform: scale(0.6); opacity: 0.8; }

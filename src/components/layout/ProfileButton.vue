@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useAuth } from '../../composables/useAuth'
+import { useProfileModal } from '../../composables/useProfileModal'
 import ProfileModal from './ProfileModal.vue'
 import DefaultAvatar from '../ui/DefaultAvatar.vue'
 
 const { state } = useAuth()
-const showModal = ref(false)
+const { isOpen: showModal, open: openModal, close: closeModal } = useProfileModal()
 </script>
 
 <template>
@@ -14,13 +14,13 @@ const showModal = ref(false)
       class="profile-button"
       :class="{ checking: state.isChecking }"
       :aria-label="state.user ? 'Open profile' : 'Sign in'"
-      @click="showModal = true"
+      @click="openModal"
     >
       <DefaultAvatar :size="20" />
       <i :class="{ online: state.user }"></i>
     </button>
 
-    <ProfileModal v-if="showModal" @close="showModal = false" />
+    <ProfileModal v-if="showModal" @close="closeModal" />
   </div>
 </template>
 

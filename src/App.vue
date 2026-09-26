@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import MapView from './components/map/MapView.vue'
 import SearchBar from './components/search/SearchBar.vue'
 import ProfileButton from './components/layout/ProfileButton.vue'
@@ -9,11 +9,29 @@ import { useAuth } from './composables/useAuth'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
 const mapView = ref<InstanceType<typeof MapView> | null>(null)
-const { checkSession } = useAuth()
+const { state, checkSession } = useAuth()
 
 onMounted(() => {
   checkSession()
 })
+
+// Reload pins whenever the mode changes (ModeToggle already prevents
+// switching to 'saved' while logged out).
+watch(activeMode, (mode) => {
+  mapView.value?.setMode(mode)
+})
+
+// Defensive: if the session ends (logout, or expiry) while viewing Saved,
+// fall back to Explore rather than leaving the user on a mode they can no
+// longer use.
+watch(
+  () => state.user,
+  (user) => {
+    if (!user && activeMode.value === 'saved') {
+      activeMode.value = 'explore'
+    }
+  },
+)
 
 function handlePlaceSelected({ lat, lon }: { lat: number; lon: number }) {
   mapView.value?.flyTo(lat, lon)
