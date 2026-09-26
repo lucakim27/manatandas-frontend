@@ -3,6 +3,8 @@ import { useAuth } from '../../composables/useAuth'
 import { useProfileModal } from '../../composables/useProfileModal'
 
 const activeMode = defineModel<'explore' | 'saved'>({ required: true })
+const props = defineProps<{ isFindingNearest?: boolean }>()
+const emit = defineEmits<{ 'nearest-bathroom': [] }>()
 const { state } = useAuth()
 const { open: openProfileModal } = useProfileModal()
 
@@ -20,7 +22,7 @@ function selectSaved() {
 </script>
 
 <template>
-  <nav class="left-rail glass-panel" aria-label="Map modes">
+  <nav class="left-rail glass-panel" aria-label="Map modes and actions">
     <button :class="{ active: activeMode === 'explore' }" @click="activeMode = 'explore'">
       <svg viewBox="0 0 24 24"><path d="m4 19 6-3 5 3 5-3V5l-5 3-5-3-6 3zM10 5v11M15 8v11"></path></svg>
       <span>Explore</span>
@@ -29,6 +31,16 @@ function selectSaved() {
       <svg viewBox="0 0 24 24"><path d="M6 4.5A2.5 2.5 0 0 1 8.5 2h7A2.5 2.5 0 0 1 18 4.5V21l-6-3.5L6 21z"></path></svg>
       <span>Saved</span>
     </button>
+    <button
+      class="nearest-button"
+      type="button"
+      aria-label="Find the nearest bathroom and show it on the map"
+      :disabled="props.isFindingNearest"
+      @click="emit('nearest-bathroom')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 21 3l-8 18-2.5-7.5L3 11Z"></path></svg>
+      <span>{{ props.isFindingNearest ? 'Finding…' : 'Nearest' }}</span>
+    </button>
   </nav>
 </template>
 
@@ -36,6 +48,9 @@ function selectSaved() {
 .left-rail { position: absolute; z-index: 5; top: 50%; left: 34px; display: flex; flex-direction: column; gap: 5px; width: 73px; padding: 10px 8px; border-radius: 19px; transform: translateY(-50%); }
 .left-rail button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 3px; border-radius: 12px; color: #779084; background: transparent; font-size: 10px; }
 .left-rail button:hover, .left-rail button.active { color: #263e32; background: rgba(212,229,215,.7); }
+.left-rail button.nearest-button { color: #b44b3d; }
+.left-rail button.nearest-button:hover:not(:disabled) { color: #96392e; background: rgba(240,213,207,.72); }
+.left-rail button.nearest-button:disabled { cursor: wait; opacity: .65; }
 .left-rail svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
 
 @media (max-width: 680px) {

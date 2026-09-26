@@ -19,10 +19,13 @@ interface Bathroom {
 }
 
 const mapContainer = ref<HTMLDivElement | null>(null)
+const emit = defineEmits<{ 'show-explore': [] }>()
 let map: L.Map | null = null
 let userMarker: L.Marker | null = null
 let bathroomLayer: L.LayerGroup | null = null
+const bathroomMarkers = new Map<number, L.Marker>()
 let currentMode: 'explore' | 'saved' = 'explore'
+let bathroomLoadRequest = 0
 const { state, fetchOpts } = useAuth()
 const { open: openProfileModal } = useProfileModal()
 const API_BASE = import.meta.env.VITE_API_BASE_URL as string | undefined
@@ -102,12 +105,109 @@ function locateMe() {
   )
 }
 
+function getCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('This browser does not support location access.'))
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      resolve,
+      (error) => {
+        const message = error.code === error.PERMISSION_DENIED
+          ? 'Allow location access to find the nearest bathroom.'
+          : 'Could not get your location. Please try again.'
+        reject(new Error(message))
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    )
+  })
+}
+
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const radians = (degrees: number) => degrees * Math.PI / 180
+  const deltaLat = radians(lat2 - lat1)
+  const deltaLng = radians(lng2 - lng1)
+  const a = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(deltaLng / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+async function findNearestBathroom(lat: number, lng: number): Promise<Bathroom | null> {
+  if (!API_BASE) throw new Error('Bathroom search is not configured.')
+
+  let radiusKm = 1
+  const maxRadiusKm = 1024
+  let nearest: Bathroom | null = null
+  let nearestDistance = Number.POSITIVE_INFINITY
+  const longitudeScale = Math.max(Math.cos(lat * Math.PI / 180), 0.1)
+
+  // Expand the bounding box until the closest result is inside its radius.
+  // The backend applies these bounds in SQL, so we avoid downloading the
+  // entire bathroom database for this one-tap action.
+  while (radiusKm <= maxRadiusKm) {
+    const latDelta = radiusKm / 110.574
+    const lngDelta = radiusKm / (111.32 * longitudeScale)
+    const params = new URLSearchParams({
+      minLat: String(lat - latDelta),
+      maxLat: String(lat + latDelta),
+      minLng: String(lng - lngDelta),
+      maxLng: String(lng + lngDelta),
+    })
+    const response = await fetch(`${API_BASE}/api/bathrooms?${params}`, fetchOpts)
+    if (!response.ok) throw new Error('Could not search for nearby bathrooms.')
+
+    const bathrooms: Bathroom[] = await response.json()
+    for (const bathroom of bathrooms) {
+      if (bathroom.accessType === 'PRIVATE') continue
+      if (!Number.isFinite(bathroom.latitude) || !Number.isFinite(bathroom.longitude)) continue
+
+      const distance = distanceKm(lat, lng, bathroom.latitude, bathroom.longitude)
+      if (distance < nearestDistance) {
+        nearest = bathroom
+        nearestDistance = distance
+      }
+    }
+
+    if (nearest && nearestDistance <= radiusKm) return nearest
+    if (radiusKm === maxRadiusKm) break
+    radiusKm = Math.min(radiusKm * 2, maxRadiusKm)
+  }
+
+  return nearest
+}
+
+async function showNearestBathroomPopup() {
+  const position = await getCurrentPosition()
+  const { latitude, longitude } = position.coords
+  const nearest = await findNearestBathroom(latitude, longitude)
+  if (!nearest) throw new Error('No nearby non-private bathrooms were found.')
+
+  if (currentMode !== 'explore') {
+    currentMode = 'explore'
+    emit('show-explore')
+    await loadBathrooms('explore')
+  }
+
+  let marker = bathroomMarkers.get(nearest.id)
+  if (!marker) {
+    await loadBathrooms('explore')
+    marker = bathroomMarkers.get(nearest.id)
+  }
+  if (!marker) throw new Error('Found a bathroom, but could not show it on the map.')
+
+  map?.flyTo([nearest.latitude, nearest.longitude], 17)
+  marker.openPopup()
+}
+
 // Fetches bathrooms from the backend and drops a marker for each.
 // mode 'explore' loads every public bathroom; 'saved' loads only the
 // current user's bookmarks (requires a valid session cookie — enforced by
 // the backend, not just this check).
 async function loadBathrooms(mode: 'explore' | 'saved' = 'explore') {
   if (!API_BASE || !map || !bathroomLayer) return
+  const requestId = ++bathroomLoadRequest
 
   const path = mode === 'saved' ? '/api/bathrooms/saved' : '/api/bathrooms'
 
@@ -133,13 +233,17 @@ async function loadBathrooms(mode: 'explore' | 'saved' = 'explore') {
       }
     }
 
+    if (requestId !== bathroomLoadRequest || mode !== currentMode) return
+
     bathroomLayer.clearLayers()
+    bathroomMarkers.clear()
     bathrooms.forEach((b) => {
       let isSaved = savedBathroomIds.has(b.id)
       const marker = L.marker([b.latitude, b.longitude], {
         icon: mode === 'explore' && isSaved ? savedBathroomIcon : bathroomIcon,
       })
         .addTo(bathroomLayer as L.LayerGroup)
+      bathroomMarkers.set(b.id, marker)
 
       // Build popup content with DOM nodes so bathroom names and addresses
       // are rendered as text rather than interpreted as HTML.
@@ -210,6 +314,7 @@ async function loadBathrooms(mode: 'explore' | 'saved' = 'explore') {
 
 // Called by App.vue when the Explore/Saved toggle changes.
 function setMode(mode: 'explore' | 'saved') {
+  if (mode === currentMode) return
   currentMode = mode
   loadBathrooms(mode)
 }
@@ -223,7 +328,7 @@ watch(
   },
 )
 
-defineExpose({ zoomIn, zoomOut, reset, locateMe, flyTo, setMode })
+defineExpose({ zoomIn, zoomOut, reset, locateMe, flyTo, setMode, showNearestBathroomPopup })
 
 onMounted(() => {
   if (!mapContainer.value) return

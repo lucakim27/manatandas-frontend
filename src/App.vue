@@ -8,6 +8,7 @@ import MapToolbar from './components/map/MapToolbar.vue'
 import { useAuth } from './composables/useAuth'
 
 const activeMode = ref<'explore' | 'saved'>('explore')
+const isFindingNearest = ref(false)
 const mapView = ref<InstanceType<typeof MapView> | null>(null)
 const { state, checkSession } = useAuth()
 
@@ -36,18 +37,35 @@ watch(
 function handlePlaceSelected({ lat, lon }: { lat: number; lon: number }) {
   mapView.value?.flyTo(lat, lon)
 }
+
+async function handleNearestBathroom() {
+  if (isFindingNearest.value || !mapView.value) return
+
+  isFindingNearest.value = true
+  try {
+    await mapView.value.showNearestBathroomPopup()
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : 'Could not find a nearby bathroom.')
+  } finally {
+    isFindingNearest.value = false
+  }
+}
 </script>
 
 <template>
   <main class="map-app">
-    <MapView ref="mapView" />
+    <MapView ref="mapView" @show-explore="activeMode = 'explore'" />
 
     <header class="topbar">
       <SearchBar @select="handlePlaceSelected" />
       <ProfileButton />
     </header>
 
-    <ModeToggle v-model="activeMode" />
+    <ModeToggle
+      v-model="activeMode"
+      :is-finding-nearest="isFindingNearest"
+      @nearest-bathroom="handleNearestBathroom"
+    />
 
     <MapToolbar
       @locate="mapView?.locateMe()"
